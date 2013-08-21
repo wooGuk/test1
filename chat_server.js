@@ -1,4 +1,4 @@
-var app = require('http').createServer(handler)
+﻿var app = require('http').createServer(handler)
   , io = require('socket.io').listen(app)
   , fs = require('fs')
 
@@ -18,7 +18,7 @@ function handler(req, res){
 		res.end(data);
 	});
 }
-
+//hihihi!
 io.sockets.on('connection', function(socket) {
 	var room_name = null;
 
