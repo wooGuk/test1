@@ -1,0 +1,676 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>HTML5 Canvas + Node.JS Socket.io</title>
+	<style>
+section { width:60%; float:left; height:600px; background-color:#abc }
+aside { width:35%; float:right; background-color:#bac }
+#text_option { position:absolute; top:60px; left:600px; width:220px; height:80px; background-color:#acb }
+.top { height:20px; background-color:#bcb }
+	</style>
+</head>
+<body>
+	<section>
+		<div class="btnGroup" style="padding-bottom:10px;">
+			<input type="button" value="브러쉬" onclick="paint.setType('brush');">
+			브러쉬 두께<input type="text" id="brush_size" value="1" style="width:30px">
+			투명도 0~1 <input type="text" id="opacity" value="1" style="width:30px">
+			<input type="button" value="선" onclick="paint.setType('line');">
+			<input type="button" value="네모" onclick="paint.setType('rect');">
+			<input type="button" value="원" onclick="paint.setType('circle');">
+			<input type="button" value="텍스트" onclick="paint.setType('text');">
+			<input type="button" value="페인트" onclick="paint.setType('fillArea');">
+			<input type="button" value="Dropper" onclick="paint.setType('dropper');">
+			<input type="button" value="지우개" onclick="paint.setType('erase');">
+		</div>
+		<canvas id="canvas1" width="750px" height="500px" style="border:1px #ddd solid; position:absolute; top:40px; left:10px;"></canvas>
+		<canvas id="canvas2" width="750px" height="500px" style="border:1px #ddd solid; position:absolute; top:40px; left:10px;"></canvas>
+	</section>
+	<aside>
+		방<input id="room_name" type="text"><br/>
+		<input type="button" onclick="set_room()" value="방선택"/>
+		이름<input id="user_name" type="text"><br/>
+		<input id="input" onkeydown="if (event.keyCode == 13) send()" type="message">
+		<button onclick="send()" type="button">send</button>
+		<div id="message_list"></div>
+	</aside>
+
+<div id="text_option" style="display:none;">
+	<div class="top"></div>
+<pre>텍스트 : <input type="text" id="text_value">
+크기  : <input type="text" id="text_size"></pre>
+</div>
+
+
+<div id="wPaint1" style="position:absolute; top:600px; width:500px; height:300px; background:#CACACA; border:solid black 1px;"></div>
+<div id="fillColorPicker"></div>
+<div id="strokeColorPicker"></div>
+
+</body>
+
+</html>
+
+
+<script src="http://203.253.20.234:8005/socket.io/socket.io.js"></script>
+<script src="http://203.253.20.234:8181/jquery-2.0.2.min.js"></script>
+
+<!-- jQuery UI -->
+<script src="http://203.253.20.234:8181/jquery-ui.min.js"></script>
+
+<!-- wColorPicker -->
+<link rel="Stylesheet" type="text/css" href="http://203.253.20.234:8181/wPaint-1.14.0/inc/wColorPicker.css" />
+<script type="text/javascript" src="http://203.253.20.234:8181/wPaint-1.14.0/inc/wColorPicker.js"></script>
+
+<!-- wPaint -->
+<link rel="Stylesheet" type="text/css" href="http://203.253.20.234:8181/wPaint-1.14.0/wPaint.css" />
+<script src="http://203.253.20.234:8181/wPaint-1.14.0/wPaint.js"></script>
+
+
+
+<script>
+$(function(){
+	 var wp = $("#wPaint1").wPaint({
+			drawDown: function(e, mode){ $("#canvasDown").val(this.settings.mode + ": " + e.pageX + ',' + e.pageY); },
+			drawMove: function(e, mode){ $("#canvasMove").val(this.settings.mode + ": " + e.pageX + ',' + e.pageY); },
+			drawUp: function(e, mode){ $("#canvasUp").val(this.settings.mode + ": " + e.pageX + ',' + e.pageY); }
+		}).data('_wPaint');
+
+		//컬러피커사용하기
+		$("#fillColorPicker").wColorPicker({
+			mode: "click",
+			initColor: "#CCFF00",
+			buttonSize: 10,
+			showSpeed: 300,
+			hideSpeed: 300,
+			onSelect: function(selectColor){
+				paint.fillColor = selectColor;
+			}
+		});
+
+		$("#strokeColorPicker").wColorPicker({
+			mode: "click",
+			initColor: "#660066",
+			buttonSize: 10,
+			showSpeed: 300,
+			hideSpeed: 300,
+			onSelect: function(selectColor){
+				paint.strokeColor = selectColor;
+			}
+		});
+});
+
+
+
+
+var roomName = null;
+
+var socket = io.connect('http://203.253.20.234:8005');21
+socket.on('message', function (data) {
+	message_list.innerHTML = data.user_name+" :" + data.message +"<br />" + message_list.innerHTML;
+});
+
+socket.on('my_message', function (data) {
+	message_list.innerHTML = data.user_name+" :" + data.message + "<br />" + message_list.innerHTML;
+});
+
+socket.on('draw', function (data) {
+	paint.broadType = data.type;
+	paint.broadPaint(data.sX, data.sY, data.eX, data.eY);
+});
+
+function set_room(){
+	roomName = room_name.value;
+	socket.emit('set_room', {room_name:room_name.value});
+}
+
+function send() {
+	if(user_name.value==""){
+		alert("이름을 입력하세요.");
+		return;
+	}
+	if(roomName==""){
+		alert("방을 선택하세요.");
+		return;
+	}
+	// send는 message만 가능. emit으로 사용자지정 가능.
+	socket.emit('my other event', {user_name:user_name.value, message:input.value});
+	input.value = "";
+}
+
+</script>
+
+<!-- 페인트를 위한 -->
+<script>
+function rectangle()
+{
+	this.x=0;
+	this.y=0;
+	this.w=0;
+	this.h=0;
+	this.alpha=0;
+	this.fc=paint.fillColor;
+	this.scpaint.strokeColor;
+}
+
+rectangle.prototype = {
+	draw : function(context)
+		{
+			context.beginpath();
+			context.lineTo(this.x, this.x+this.w);
+			context.lineTo(this.x+this.w, this.x+this.w+this.h);
+			context.lineTo(this.x+this.w+this.h, this.h);
+			context.lineTo(this.h, this.x);
+			context.fillStyle='red';
+			context.fill();
+			context.strokeStyle=this.strokeColor;	
+			context.stroke();
+			context.closePath();
+		}
+}
+
+function ellipse()
+{
+	this.x=0;
+	this.y=0;
+	this.w=0;
+	this.h=0;
+	this.alpha=0;
+	this.fc=paint.fillColor;
+	this.scpaint.strokeColor;
+}
+
+	ellipse.prototype = {
+		draw : function(context)
+		{
+			if(this.eX > this.sX){
+					maxX = this.eX;
+					minX = this.sX;
+				}else{
+					maxX = this.sX;
+					minX = this.eX;
+				}
+
+				if(this.eY > this.sY){
+					maxY = this.eY;
+					minY = this.sY;
+				}else{
+					maxY = this.sY;
+					minY = this.eY;
+				}
+				midX = (maxX-minX)/2;
+				midY = (maxY-minY)/2;
+
+				lx = minX;
+				rx = maxX;
+				ty = minY;
+				by = maxY;
+				cx = minX+midX;
+				cy = minY+midY;
+
+				var magic = 0.551784;
+				var xmagic = magic*midX;
+				var ymagic = midY*magic;
+
+				context.beginPath();
+
+				context.moveTo(cx,ty);
+				context.bezierCurveTo(cx+xmagic,ty,rx,cy-ymagic,rx,cy);
+				context.bezierCurveTo(rx,cy+ymagic,cx+xmagic,by,cx,by);
+				context.bezierCurveTo(cx-xmagic,by,lx,cy+ymagic,lx,cy);
+				context.bezierCurveTo(lx,cy-ymagic,cx-xmagic,ty,cx,ty);
+
+				
+				context.fillStyle=this.fillColor;
+				context.fill();
+				context.lineWidth = $("#brush_size").val();
+				context.strokeStyle=this.strokeColor;	
+				context.stroke();
+				context.closePath();
+		}
+	}
+
+function triangle()
+{
+	this.x=0;
+	this.y=0;
+	this.w=0;
+	this.h=0;
+	this.alpha=0;
+	this.fc=paint.fillColor;
+	this.scpaint.strokeColor;
+}
+
+var paint = {
+	
+	type : null
+	,broadType : null
+	,fillColor : "#CCFF00"
+	,strokeColor : "#660066"
+	,broadColor : "red"
+	,sX : 0
+	,sY : 0
+	,eX : 0
+	,eY : 0
+	
+	
+	,setType : function(T){
+		this.type = T;
+		if(T=="brush" || T=="line" || T=="rect" || T=="circle" || T=="fillArea" || T=="dropper" || T=="erase"){
+			$("canvas").css("cursor", "Crosshair");
+			$("#text_option").hide();
+		}else if(T=="text"){
+			$("canvas").css("cursor", "text");
+			$("#text_option").show();
+		}
+		return;
+	}
+	,setStart : function(X, Y) {
+		this.sX = X;
+		this.sY = Y;
+		return;
+	}
+	,setEnd : function(X, Y){
+		this.eX = X;
+		this.eY = Y;
+		return;
+	}
+	
+	,paint : function(){
+		var canvas = $("#canvas1").get(0);
+		var context = canvas.getContext("2d");
+
+		context.fillStyle = this.fillColor;
+		context.strokeStyle = this.strokeColor;
+		context.globalAlpha = $("#opacity").val();
+
+			var cirtest = new circle();
+			cirtest.sX=this.sX;
+			cirtest.eX=this.eX;
+			cirtest.sY=this.sY;
+			cirtest.eY=this.eY;
+
+			cirtest.draw(context);
+
+		if(this.type=="brush"){
+			context.lineCap = "round";
+			context.lineJoin = "round";
+			context.lineWidth = $("#brush_size").val();
+			context.beginPath();
+			context.moveTo(this.sX, this.sY);
+			context.lineTo(this.eX, this.eY);
+			context.stroke();
+			context.closePath();
+		}else if(this.type=="line"){
+			context.beginPath();
+			//context.lineWidth = $("#brush_size").val();
+			context.moveTo(this.sX, this.sY);
+			context.lineTo(this.eX, this.eY);
+			context.stroke();
+			context.closePath();
+		}else if(this.type=="rect"){
+			
+			var test = new rectangle();
+			test.x=this.sX;
+			test.y=this.sY;
+			test.w=this.eX-this.sX;
+			test.h=this.eY-this.sY;
+
+			test.draw(context);
+			//context.fillRect(this.sX, this.sY, this.eX-this.sX, this.eY-this.sY);
+			/*context.beginPath();
+			context.rect(this.sX, this.sY, this.eX-this.sX, this.eY-this.sY);
+			context.fillStyle= this.fillColor;
+			context.fill();
+			context.lineWidth = $("#brush_size").val();
+			context.strokeStyle=this.strokeColor;	
+			context.stroke();
+			context.closePath();*/
+			//context.closePath();
+			//context.strokeRect(sX, sY, eX-sX, eY-sY);
+		}else if(this.type=="circle"){
+			/*if(this.eX > this.sX){
+				maxX = this.eX;
+				minX = this.sX;
+			}else{
+				maxX = this.sX;
+				minX = this.eX;
+			}
+
+			if(this.eY > this.sY){
+				maxY = this.eY;
+				minY = this.sY;
+			}else{
+				maxY = this.sY;
+				minY = this.eY;
+			}
+			midX = (maxX-minX)/2;
+			midY = (maxY-minY)/2;
+
+			lx = minX;
+			rx = maxX;
+			ty = minY;
+			by = maxY;
+			cx = minX+midX;
+			cy = minY+midY;
+
+			var magic = 0.551784;
+			var xmagic = magic*midX;
+			var ymagic = midY*magic;
+
+			context.beginPath();
+
+			context.moveTo(cx,ty);
+			context.bezierCurveTo(cx+xmagic,ty,rx,cy-ymagic,rx,cy);
+			context.bezierCurveTo(rx,cy+ymagic,cx+xmagic,by,cx,by);
+			context.bezierCurveTo(cx-xmagic,by,lx,cy+ymagic,lx,cy);
+			context.bezierCurveTo(lx,cy-ymagic,cx-xmagic,ty,cx,ty);
+		
+			context.fillStyle=this.fillColor;
+			context.fill();
+			context.lineWidth = $("#brush_size").val();
+			context.strokeStyle=this.strokeColor;	
+			context.stroke();
+			context.closePath();*/
+			var cirtest = new ellipse();
+			cirtest.x=this.sX;
+			cirtest.y=this.sY;
+			cirtest.w=this.sX-this.eX;
+			cirtest.h=this.sY-this.eY;
+
+			cirtest.draw(context);
+
+		}else if(this.type=="text"){
+			context.fillStyle = this.strokeColor;
+			context.strokeStyle = this.fillColor;
+			context.font = "normal "+$("#text_size").val()+"pt Calibri ";
+			context.fillText($("#text_value").val(), this.eX, this.eY);
+			context.fillStyle = this.fillColor;
+			context.strokeStyle = this.strokeColor;
+		}else if(this.type=="erase"){
+			context.fillStyle = 'rgba(0,0,0,0)';
+			context.strokeStyle = 'rgba(0,0,0,0)';
+			context.lineCap = "round";
+			context.lineWidth = $("#brush_size").val();
+
+			context.globalCompositeOperation = 'source-in';
+			context.beginPath();
+			context.moveTo(this.sX, this.sY);
+			context.lineTo(this.eX, this.eY);
+			context.stroke();
+			context.closePath();
+
+			context.fillStyle = this.fillColor;
+			context.strokeStyle = this.strokeColor;
+			context.globalAlpha = $("#opacity").val();
+			context.globalCompositeOperation = 'source-over';
+		}
+
+
+else if(this.type=="dropper"){
+			imgData = context.getImageData(0,0, canvas.width, canvas.height);
+			pixelArray = imgData.data;
+			pixel = paint.getPixel(imgData, {x:this.eX, y:this.eY});
+			paint.fillColor = 'rgba('
+                + [ pixel.r, pixel.g, pixel.b, pixel.a ].join(',')
+                + ')';
+
+			cpContainer = $("#fillColorPicker");
+			if(!cpContainer.length) return;
+
+			cp = cpContainer.data('_wColorPicker');
+            // too depend on wColorPicker implements.
+            if (pixel.a === 0) {
+                cp.colorSelect(cp, 'rgba');
+            } else {
+                cp.colorSelect(cp, 'rgb(' + [ pixel.r, pixel.g, pixel.b ].join(',') + ')');
+            }
+		}else if(this.type=="fillArea"){
+			imgData = context.getImageData(0,0, canvas.width, canvas.height);
+			pixelArray = imgData.data;
+
+			pixel = paint.toPixel(paint.fillColor);
+			startPos = {x:this.eX, y:this.eY};
+			startPixel = paint.getPixel(imgData, startPos);
+			queue = [startPos];
+			dist = [{x:0,y:1},{x:1,y:0},{x:0,y:-1},{x:-1,y:0}];
+
+			while(!!queue.length) {
+                var pos = queue.pop();
+
+                paint.putPixel(imgData, pos, pixel);
+
+                for (var i = 0; i < dist.length; i++) {
+                    var nextPos = { x : pos.x + dist[i].x, y : pos.y + dist[i].y };
+                    if (nextPos.x < 0 || nextPos.x >= canvas.width) continue;
+                    if (nextPos.y < 0 || nextPos.y >= canvas.height) continue;
+                    var nextPixel = paint.getPixel(imgData, nextPos);
+                    if (!paint.equalPixel(startPixel, nextPixel)) continue;
+                    if (paint.equalPixel(pixel, nextPixel)) continue;
+
+                    queue.push(nextPos);
+                }
+            }
+            context.putImageData(imgData, 0, 0);
+
+		}
+
+
+		if(roomName!=null){
+			socket.emit('paint event', {type:this.type, color:this.strokeColor, sX:this.sX, sY:this.sY, eX:this.eX, 
+			eY:this.eY});
+		}
+		return;
+	}
+	,getPixel : function(imgData, pos) {
+			var pixelArray = imgData.data;
+            var base = ((pos.y * imgData.width) + pos.x) * 4;
+            return {
+                r : pixelArray[base],
+                g : pixelArray[base + 1],
+                b : pixelArray[base + 2],
+                a : pixelArray[base + 3]
+            }
+	}
+	,equalPixel: function(p1, p2) {
+            return p1.r == p2.r
+                && p1.g == p2.g
+                && p1.b == p2.b
+                && p1.a == p2.a;
+    }
+	,putPixel : function(imgData, pos, pixel) {
+			var pixelArray = imgData.data;
+            var base = ((pos.y * imgData.width) + pos.x) * 4;
+            pixelArray[base]     = pixel.r
+            pixelArray[base + 1] = pixel.g
+            pixelArray[base + 2] = pixel.b
+            pixelArray[base + 3] = pixel.a
+	}
+	,toPixel : function(color) {
+			 var matched;
+            if (color.charAt(0) === '#') {
+                if (color.length === 4) {
+                    return {
+                        r: parseInt(color.charAt(1), 16),
+                        g: parseInt(color.charAt(2), 16),
+                        b: parseInt(color.charAt(3), 16),
+                        a: 255
+                    };
+                } else if (color.length === 7) {
+                    return {
+                        r: parseInt(color.substr(1, 2), 16),
+                        g: parseInt(color.substr(3, 2), 16),
+                        b: parseInt(color.substr(5, 2), 16),
+                        a: 255
+                    };
+                }
+            } else if (matched = color.replace(/\s/g, '').match(/rgba?\(([\d,]+)\)/)[1]) {
+                var rgba = matched.split(',');
+                var pixel = {};
+                pixel.r = rgba[0];
+                pixel.g = rgba[1];
+                pixel.b = rgba[2];
+                pixel.a = (rgba[3] === undefined) ? 255 : rgba[3];
+                return pixel;
+            }	
+	}
+	,movePaint : function(){
+		var canvas = $("#canvas2").get(0);
+		var context = canvas.getContext("2d");
+
+		context.strokeStyle = "gray";
+		context.fillStyle = "gray";
+		context.globalAlpha = 0.5;
+		context.globalAlpha = $("#opacity").val();
+		if(this.type=="brush"){
+			context.lineCap = "round";
+			context.lineJoin = "round";
+			context.lineWidth = $("#brush_size").val();
+			context.beginPath();
+			context.moveTo(this.sX, this.sY);
+			context.lineTo(this.eX, this.eY);
+			context.stroke();
+			context.closePath();
+		}else if(this.type=="line"){
+			context.beginPath();
+			context.moveTo(this.sX, this.sY);
+			context.lineTo(this.eX, this.eY);
+			context.stroke();
+			context.closePath();
+		}else if(this.type=="rect"){
+			context.beginPath();
+			context.rect(this.sX, this.sY, this.eX-this.sX, this.eY-this.sY);
+			context.fillStyle=this.fillColor;
+			context.fill();
+			context.lineWidth = $("#brush_size").val();
+			context.strokeStyle=this.strokeColor;	
+			context.stroke();
+			context.closePath();
+			//context.strokeRect(sX, sY, eX-sX, eY-sY);
+		}else if(this.type=="circle"){
+			if(this.eX > this.sX){
+				maxX = this.eX;
+				minX = this.sX;
+			}else{
+				maxX = this.sX;
+				minX = this.eX;
+			}
+
+			if(this.eY > this.sY){
+				maxY = this.eY;
+				minY = this.sY;
+			}else{
+				maxY = this.sY;
+				minY = this.eY;
+			}
+			midX = (maxX-minX)/2;
+			midY = (maxY-minY)/2;
+
+			lx = minX;
+			rx = maxX;
+			ty = minY;
+			by = maxY;
+			cx = minX+midX;
+			cy = minY+midY;
+
+			var magic = 0.551784;
+			var xmagic = magic*midX;
+			var ymagic = midY*magic;
+
+			context.beginPath();
+
+			context.moveTo(cx,ty);
+			context.bezierCurveTo(cx+xmagic,ty,rx,cy-ymagic,rx,cy);
+			context.bezierCurveTo(rx,cy+ymagic,cx+xmagic,by,cx,by);
+			context.bezierCurveTo(cx-xmagic,by,lx,cy+ymagic,lx,cy);
+			context.bezierCurveTo(lx,cy-ymagic,cx-xmagic,ty,cx,ty);
+		
+			context.fillStyle=this.fillColor;
+			context.fill();
+			context.lineWidth = $("#brush_size").val();
+			context.strokeStyle=this.strokeColor;	
+			context.stroke();
+			context.closePath();
+		}else if(this.type=="text"){
+			context.font = "normal "+$("#text_size").val()+"pt Calibri ";
+			context.fillText($("#text_value").val(), this.eX, this.eY);
+		}
+		if(roomName!=null){
+			socket.emit('paint event', {type:this.type, color:this.strokeColor, sX:this.sX, sY:this.sY, eX:this.eX, 
+			eY:this.eY});
+		}
+		return;
+	}
+	,moveClear : function(){
+		var canvas = $("#canvas2").get(0);
+		var context = canvas.getContext("2d");
+		context.clearRect(0,0,750,500);
+	}
+	,broadPaint : function(sX, sY, eX, eY){
+		var canvas = $("#canvas1").get(0);
+		var context = canvas.getContext("2d");
+
+		context.fillStyle = this.broadColor;
+		context.strokeStyle = this.broadColor;
+		if(this.broadType=="brush"){
+			context.lineCap = "round";
+			context.lineWidth = $("#brush_size").val();
+			context.beginPath();
+			context.moveTo(sX, sY);
+			context.lineTo(eX, eY);
+			context.stroke();
+			context.closePath();
+		}else if(this.broadType=="line"){
+			context.beginPath();
+			context.moveTo(sX, sY);
+			context.lineTo(eX, eY);
+			context.stroke();
+			context.closePath();
+		}else if(this.broadType=="rect"){
+			context.fillRect(sX, sY, eX-sX, eY-sY);
+			//context.strokeRect(sX, sY, eX-sX, eY-sY);
+		}else if(this.broadType=="circle"){
+			context.beginPath();
+			context.moveTo(sX, sY);
+			context.lineTo(eX, eY);
+			context.stroke();
+			context.closePath();
+		}else if(this.broadType=="text"){
+			context.fillText("hello, Canvas!", eX, eY);
+		}
+		return;
+	}
+};
+
+$(function(){
+	var down = false;
+
+	$("canvas").mousedown(function(e){
+		paint.setStart(e.offsetX, e.offsetY);
+		down = true;
+	});
+
+	$("canvas").mouseup(function(e){		
+		if(down = true){
+			paint.moveClear();
+			paint.setEnd(e.offsetX, e.offsetY);
+			paint.paint();
+			down = false;
+		}
+	});
+
+	$("canvas").mousemove(function(e){
+		if(down){
+			paint.moveClear();
+			paint.setEnd(e.offsetX, e.offsetY);
+			paint.movePaint();
+			if(paint.type=="brush" || paint.type=="erase"){
+				paint.paint();
+				paint.setStart(e.offsetX, e.offsetY);
+			}
+		}
+	});
+
+	$("#text_option").draggable({ handle: ".top" });
+});
+</script>
