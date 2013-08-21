@@ -21,7 +21,7 @@ function handler(req, res){
 //hihihi!
 io.sockets.on('connection', function(socket) {
 	var room_name = null;
-
+	var aaa;
 	socket.on('set_room', function(data){
 		socket.join(data.room_name);
 		this.room_name = data.room_name;
